@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relative Noise Room Analyzer</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="backdrop backdrop-a" aria-hidden="true"></div>
+  <div class="backdrop backdrop-b" aria-hidden="true"></div>
+  <div class="mesh" aria-hidden="true"></div>
+
+  <header class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Relative Frequency Sound Analyzer</p>
+      <h1>Map the leak, not the SPL.</h1>
+      <p class="subtitle">
+        Capture a reference outside the room or before treatment, then compare the live spectrum to expose
+        weak frequency bands, speech bleed, bass transfer, and treatment wins.
+      </p>
+    </div>
+
+    <div class="hero-stack">
+      <article class="hero-card">
+        <span class="metric-label">Session</span>
+        <strong id="sessionState" class="metric-value">Idle</strong>
+        <p id="sessionHint" class="metric-note">Start the microphone, then capture a reference.</p>
+      </article>
+
+      <article class="hero-card accent">
+        <span class="metric-label">Relative Broadband</span>
+        <strong id="broadbandDelta" class="metric-value">--</strong>
+        <p id="broadbandNote" class="metric-note">Waiting for a reference snapshot.</p>
+      </article>
+
+      <article class="hero-card">
+        <span class="metric-label">Weakest Band</span>
+        <strong id="dominantBand" class="metric-value">--</strong>
+        <p id="dominantBandNote" class="metric-note">No band analysis yet.</p>
+      </article>
+
+      <article class="hero-card">
+        <span class="metric-label">Stability</span>
+        <strong id="stabilityValue" class="metric-value">--</strong>
+        <p id="stabilityNote" class="metric-note">Longer averaging is better for repeatable measurements.</p>
+      </article>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel controls-panel">
+      <div class="panel-head">
+        <div>
+          <p class="kicker">Capture</p>
+          <h2>Measurement controls</h2>
+        </div>
+        <p id="captureStatus" class="status-chip">Microphone offline</p>
+      </div>
+
+      <div class="action-row">
+        <button id="startButton" class="action primary">Start microphone</button>
+        <button id="stopButton" class="action" disabled>Stop</button>
+        <button id="captureReferenceButton" class="action accent" disabled>Capture reference</button>
+        <button id="clearReferenceButton" class="action ghost" disabled>Clear reference</button>
+      </div>
+
+      <div class="control-grid">
+        <label class="field">
+          <span>Snapshot label</span>
+          <input id="snapshotLabel" type="text" maxlength="32" placeholder="Inside room after door seals">
+        </label>
+
+        <label class="field">
+          <span>Focus preset</span>
+          <select id="focusPreset">
+            <option value="balanced">Balanced room scan</option>
+            <option value="speech" selected>Speech bleed</option>
+            <option value="bass">Bass transfer</option>
+            <option value="detail">Air leaks / hiss</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>View mode</span>
+          <select id="viewMode">
+            <option value="hybrid" selected>Hybrid overlay</option>
+            <option value="delta">Delta vs reference</option>
+            <option value="shape">Relative contour</option>
+          </select>
+        </label>
+
+        <div class="field compact">
+          <span>Averaging window</span>
+          <input id="averagingWindow" type="range" min="400" max="4000" step="100" value="1400">
+          <output id="averagingWindowValue">1.4 s</output>
+        </div>
+
+        <div class="field compact">
+          <span>Smoothing</span>
+          <input id="smoothingControl" type="range" min="0.2" max="0.92" step="0.02" value="0.74">
+          <output id="smoothingValue">0.74</output>
+        </div>
+
+        <div class="field compact">
+          <span>Spectrogram depth</span>
+          <input id="historyDepth" type="range" min="80" max="260" step="10" value="160">
+          <output id="historyDepthValue">160 frames</output>
+        </div>
+      </div>
+
+      <div class="action-row secondary">
+        <button id="captureSnapshotButton" class="action" disabled>Capture snapshot</button>
+        <button id="togglePeakHoldButton" class="action ghost" disabled data-enabled="false">Peak hold off</button>
+      </div>
+
+      <div class="notes-grid">
+        <article class="micro-note">
+          <strong>Best workflow</strong>
+          <p>Play pink noise or a repeating sweep at the source. Capture the reference at the source side or before treatment, then move to the listening side and compare.</p>
+        </article>
+        <article class="micro-note">
+          <strong>What the numbers mean</strong>
+          <p>All values are relative to your own reference or to the live broadband average. They are useful for ranking leaks, not for certified SPL reporting.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel visual-panel">
+      <div class="panel-head">
+        <div>
+          <p class="kicker">Live</p>
+          <h2>Spectrum map</h2>
+        </div>
+        <p id="cursorReadout" class="status-chip">Hover the spectrum for a frequency readout.</p>
+      </div>
+
+      <canvas id="spectrumCanvas" class="visual-canvas" aria-label="Frequency spectrum"></canvas>
+
+      <div class="legend-row">
+        <span><i class="swatch swatch-current"></i> Current contour</span>
+        <span><i class="swatch swatch-reference"></i> Reference contour</span>
+        <span><i class="swatch swatch-positive"></i> Hotter than reference</span>
+        <span><i class="swatch swatch-negative"></i> Quieter than reference</span>
+      </div>
+    </section>
+
+    <section class="panel visual-panel">
+      <div class="panel-head">
+        <div>
+          <p class="kicker">History</p>
+          <h2>Leak spectrogram</h2>
+        </div>
+        <p class="status-chip">Red bands persist where isolation is weakest.</p>
+      </div>
+
+      <canvas id="spectrogramCanvas" class="visual-canvas spectrogram" aria-label="Spectrogram history"></canvas>
+    </section>
+
+    <section class="panel band-panel">
+      <div class="panel-head">
+        <div>
+          <p class="kicker">Octaves</p>
+          <h2>Band-by-band leakage</h2>
+        </div>
+        <p class="status-chip">Use this to decide whether mass, seals, or decoupling matter most.</p>
+      </div>
+
+      <div id="bandCards" class="band-grid"></div>
+    </section>
+
+    <section class="panel insight-panel">
+      <div class="panel-head">
+        <div>
+          <p class="kicker">Interpretation</p>
+          <h2>Soundproofing guidance</h2>
+        </div>
+        <p class="status-chip">Derived from the live reference comparison.</p>
+      </div>
+
+      <div id="insightSummary" class="insight-summary">
+        <p>Capture a reference first so the analyzer can rank problem frequencies against a stable baseline.</p>
+      </div>
+
+      <div id="insightList" class="insight-list"></div>
+
+      <div class="recipe">
+        <strong>Measurement recipe</strong>
+        <ol>
+          <li>Place a speaker at the noise source and play a repeatable broadband signal.</li>
+          <li>Capture a reference outside the room or before treatment.</li>
+          <li>Move to the protected side or retest after each change.</li>
+          <li>Watch which octave bands stay close to the reference. Those are the weak links.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="panel snapshot-panel">
+      <div class="panel-head">
+        <div>
+          <p class="kicker">A/B</p>
+          <h2>Reference snapshots</h2>
+        </div>
+        <p class="status-chip">Snapshots persist in this browser.</p>
+      </div>
+
+      <div id="snapshotList" class="snapshot-list">
+        <p class="empty-state">No snapshots saved yet.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer-note">
+    Microphone access normally requires <code>http://localhost</code> or another secure context. Use <code>npm start</code> or
+    <code>python -m http.server 4173</code> from this folder if opening the file directly does not allow input access.
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
