@@ -218,11 +218,11 @@ async function startAudio() {
 
     loop();
   } catch (error) {
-    const message = error && error.message ? error.message : "Unable to access the microphone.";
-    updateSessionState("Input blocked", "Grant microphone access and use localhost if the browser rejects insecure contexts.");
-    els.captureStatus.textContent = "Microphone error";
+    const diagnosis = await diagnoseMicrophoneError(error);
+    updateSessionState(diagnosis.title, diagnosis.note);
+    els.captureStatus.textContent = diagnosis.status;
     els.broadbandDelta.textContent = "--";
-    els.broadbandNote.textContent = message;
+    els.broadbandNote.textContent = diagnosis.detail;
     console.error(error);
   }
 }
@@ -1042,6 +1042,100 @@ function updateControlReadouts() {
   els.averagingWindowValue.textContent = `${(state.averagingWindowMs / 1000).toFixed(1)} s`;
   els.historyDepthValue.textContent = `${state.historyDepth} frames`;
   els.smoothingValue.textContent = state.smoothing.toFixed(2);
+}
+
+async function diagnoseMicrophoneError(error) {
+  const name = error && error.name ? error.name : "Error";
+  const message = error && error.message ? error.message : "Unable to access the microphone.";
+  const permissionState = await getMicrophonePermissionState();
+  const secureContext = window.isSecureContext;
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return {
+      title: "Browser unsupported",
+      note: "This browser does not expose microphone capture to the page.",
+      status: "Microphone unavailable",
+      detail: `Missing navigator.mediaDevices.getUserMedia. ${formatErrorSummary(name, message, permissionState, secureContext)}`,
+    };
+  }
+
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    if (!secureContext) {
+      return {
+        title: "Secure context required",
+        note: "Open the app on HTTPS or localhost. Browser microphone capture is blocked on insecure origins.",
+        status: "Microphone blocked",
+        detail: formatErrorSummary(name, message, permissionState, secureContext),
+      };
+    }
+
+    if (permissionState === "denied") {
+      return {
+        title: "Site permission blocked",
+        note: "The browser has microphone access set to Block for this site. Change the site permission to Allow, then reload.",
+        status: "Microphone blocked",
+        detail: formatErrorSummary(name, message, permissionState, secureContext),
+      };
+    }
+
+    return {
+      title: "Permission not granted",
+      note: "The browser did not get microphone permission. Check the address-bar site controls and allow microphone access.",
+      status: "Microphone blocked",
+      detail: formatErrorSummary(name, message, permissionState, secureContext),
+    };
+  }
+
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return {
+      title: "No microphone found",
+      note: "The browser could not find any input device. Connect a microphone and confirm Windows can see it.",
+      status: "No microphone",
+      detail: formatErrorSummary(name, message, permissionState, secureContext),
+    };
+  }
+
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return {
+      title: "Microphone busy or blocked",
+      note: "Another app may be holding the device, or Windows microphone privacy may be blocking desktop apps.",
+      status: "Microphone unavailable",
+      detail: formatErrorSummary(name, message, permissionState, secureContext),
+    };
+  }
+
+  if (name === "SecurityError" || name === "TypeError") {
+    return {
+      title: "Browser security blocked input",
+      note: "The browser rejected microphone startup because of a page security or device-constraint issue.",
+      status: "Microphone error",
+      detail: formatErrorSummary(name, message, permissionState, secureContext),
+    };
+  }
+
+  return {
+    title: "Microphone start failed",
+    note: "The browser rejected microphone startup. Check site permissions, Windows privacy settings, and whether another app is using the device.",
+    status: "Microphone error",
+    detail: formatErrorSummary(name, message, permissionState, secureContext),
+  };
+}
+
+async function getMicrophonePermissionState() {
+  try {
+    if (!navigator.permissions || !navigator.permissions.query) {
+      return "unknown";
+    }
+
+    const result = await navigator.permissions.query({ name: "microphone" });
+    return result && result.state ? result.state : "unknown";
+  } catch (error) {
+    return "unknown";
+  }
+}
+
+function formatErrorSummary(name, message, permissionState, secureContext) {
+  return `${name}: ${message}. Permission state: ${permissionState}. Secure context: ${secureContext ? "yes" : "no"}.`;
 }
 
 function loadPersistedState() {
